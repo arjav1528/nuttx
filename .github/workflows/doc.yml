@@ -19,10 +19,14 @@ on:
       - master
     paths:
       - 'Documentation/**'
+      - 'Kconfig'
+      - '**/Kconfig'
 
   pull_request:
     paths:
       - 'Documentation/**'
+      - 'Kconfig'
+      - '**/Kconfig'
 
 concurrency:
   group: docs-${{ github.event.pull_request.number || github.ref }}

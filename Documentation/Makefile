@@ -39,9 +39,13 @@ help:
 	$(info =>)
 	@$(SPHINXBUILD) -M help "$(SOURCEDIR)" "$(BUILDDIR)" $(SPHINXOPTS) $(O)
 
-.PHONY: help Makefile
+.PHONY: help Makefile kconfig
 
-html: clean
+kconfig:
+	$(info => Generating Kconfig documentation...)
+	python3 _kconfig/render.py
+
+html: kconfig clean
 
 autobuild: clean
 	@$(SPHINXAUTOBUILD) "$(SOURCEDIR)" "$(BUILDDIR)" $(SPHINXAUTOOPTS) $(O)
