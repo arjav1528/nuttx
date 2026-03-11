@@ -1,0 +1,26 @@
+{{ choice_desc(choice) }}
+{{ "=" * choice_desc(choice)|length }}
+
+.. _{{ choice_id(choice) }}:
+
+{% from "helper.jinja" import help, direct_dep, defaults, kconfig_definition %}
+{{ help(choice) }}
+
+Details
+-------
+
+**Type:** {{ type_str(choice) }}
+
+{{ direct_dep(choice) }}
+
+{{ defaults(choice) }}
+
+**Options:**
+{% for sym in choice.syms %}
+- {{ rst_link(sym) }}
+{% endfor %}
+
+Raw definition
+~~~~~~~~~~~~~~
+
+{{ kconfig_definition(choice) }}

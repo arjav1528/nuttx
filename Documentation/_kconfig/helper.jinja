@@ -1,0 +1,35 @@
+{# Shared macros for Kconfig RST generation #}
+{% macro help(sc) %}
+{% if sc.nodes and sc.nodes[0].help %}
+{{ sc.nodes[0].help }}
+{% else %}
+*No help available*
+{% endif %}
+{% endmacro %}
+
+{% macro direct_dep(sc) %}
+{% if has_non_trivial_dep(sc) %}
+**Direct dependency:** ``{{ expr_str(sc.direct_dep) }}``
+{% endif %}
+{% endmacro %}
+
+{% macro defaults(sc) %}
+{% if sc.defaults %}
+**Defaults:**
+{% for expr, value in sc.defaults %}
+- ``{{ expr_str(expr) }}`` → ``{{ value }}``
+{% endfor %}
+{% endif %}
+{% endmacro %}
+
+{% macro kconfig_definition(sc) %}
+{% for node in sc.nodes %}
+**Definition** ({{ node.filename }}:{{ node.linenr }}):
+.. code-block:: kconfig
+
+{% for line in node.custom_str(rst_link).split('\n') %}
+   {{ line }}
+{% endfor %}
+
+{% endfor %}
+{% endmacro %}

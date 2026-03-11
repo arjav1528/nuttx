@@ -1,0 +1,17 @@
+Kconfig Options
+===============
+
+This section documents all NuttX configuration symbols extracted from the
+Kconfig files. Each symbol links to a detailed page with its help text,
+dependencies, and defaults.
+
+.. list-table:: Configuration Symbols
+   :header-rows: 1
+   :widths: 35 65
+
+   * - Symbol
+     - Description
+{% for sym in syms %}
+   * - :option:`CONFIG_{{ sym.name }}`
+     - {{ (sym.nodes[0].help.split('\n')[0].strip() if sym.nodes and sym.nodes[0].help else sym.nodes[0].prompt[0] if sym.nodes and sym.nodes[0].prompt else "(no description)")[:80] }}
+{% endfor %}

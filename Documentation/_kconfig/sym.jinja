@@ -1,0 +1,34 @@
+{{ "CONFIG_" ~ sym.name }}
+{{ "=" * ("CONFIG_" ~ sym.name)|length }}
+
+{% from "helper.jinja" import help, direct_dep, defaults, kconfig_definition %}
+{{ help(sym) }}
+
+Details
+-------
+
+**Type:** {{ type_str(sym) }}
+
+{% if sym.nodes and sym.nodes[0].prompt %}
+**Prompt:** {{ sym.nodes[0].prompt[0] }}
+{% endif %}
+
+{{ direct_dep(sym) }}
+
+{{ defaults(sym) }}
+
+{% if sym.selects %}
+**Selects:**
+{% for other, cond in sym.selects %}
+- {{ rst_link(other) }}
+{% endfor %}
+{% endif %}
+
+{% if has_rev_dep(sym) %}
+**Selected/implied by:** ``{{ expr_str(sym.rev_dep) }}``
+{% endif %}
+
+Raw definition
+~~~~~~~~~~~~~~
+
+{{ kconfig_definition(sym) }}
