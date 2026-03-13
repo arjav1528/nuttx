@@ -20,7 +20,7 @@ Details
 {% if sym.selects %}
 **Selects:**
 {% for other, cond in sym.selects %}
-- {{ rst_link(other) }}
+- CONFIG_{{ other.name }}
 {% endfor %}
 {% endif %}
 

@@ -22,6 +22,7 @@
 import argparse
 import operator
 import os
+import re
 import shutil
 import sys
 import tempfile
@@ -47,10 +48,26 @@ def choice_desc(choice):
 
 def rst_link(sc):
     if isinstance(sc, kconfiglib.Symbol):
+        # For defined symbols with locations, generate a cross-link to the
+        # generated per-symbol documentation page.
         if sc.nodes:
-            return rf"\ :option:`CONFIG_{sc.name}`"
+            return rf":doc:`CONFIG_{sc.name} </kconfig/CONFIG_{sc.name}>`"
+        # For undefined/placeholder symbols, fall back to plain, RST-safe text.
+        # In particular, avoid trailing underscores, which docutils interprets
+        # as reference markers.
+        return sc.name.replace("_", "\\_")
     elif isinstance(sc, kconfiglib.Choice):
         return rf"\ :ref:`<{choice_desc(sc)}> <{choice_id(sc)}>`"
+    return kconfiglib.standard_sc_expr_str(sc)
+
+
+def plain_link(sc):
+    """Like rst_link but returns plain CONFIG_name for raw blocks (no RST markup)."""
+    if isinstance(sc, kconfiglib.Symbol):
+        if sc.nodes:
+            return f"CONFIG_{sc.name}"
+    elif isinstance(sc, kconfiglib.Choice):
+        return choice_desc(sc)
     return kconfiglib.standard_sc_expr_str(sc)
 
 
@@ -80,16 +97,28 @@ def has_rev_dep(sym):
     return sym.rev_dep is not sym.kconfig.n
 
 
+def format_default_value(value):
+    """Format a default value for safe single-line RST output."""
+    if isinstance(value, kconfiglib.Symbol):
+        return f"CONFIG_{value.name}"
+    if isinstance(value, kconfiglib.Choice):
+        return choice_desc(value)
+    if value in (0, 1, 2):
+        return {0: "n", 1: "m", 2: "y"}[value]
+    if isinstance(value, str):
+        # Represent empty-string defaults in a way that does not confuse the
+        # inline-literal parser (``""`` instead of ````).
+        if value == "":
+            return '""'
+        s = value
+    else:
+        s = str(value)
+    s = s.replace("\n", " ").replace("`", "'").replace("\\", "/").replace("_", "\\_").replace("|", "\\|")
+    return s[:100] + ("..." if len(s) > 100 else "")
+
+
 def escape_help(sc):
-    """Escape RST-special chars in help text for Symbols and Choices."""
-    for node in sc.nodes:
-        if node.help:
-            node.help = (
-                node.help.replace("`", r"\`")
-                .replace("*", r"\*")
-                .replace("<", r"\<")
-                .replace("|", r"\|")
-            )
+    """No-op: help is rendered in a literal block, so no RST escaping needed."""
 
 
 def setup_stub_dirs(topdir):
@@ -141,11 +170,18 @@ def main():
 
     tmpdir, bindir, appsdir, externaldir = setup_stub_dirs(topdir)
     try:
+        # Prepare a stable, RST-safe apps bindir so that defaults derived from
+        # $APPSBINDIR do not embed random temporary directory names.
+        appsbindir = "/tmp/nuttx-appsbindir"
+        os.makedirs(appsbindir, exist_ok=True)
+        with open(os.path.join(appsbindir, "Kconfig"), "w") as f:
+            f.write("")
+
         os.environ["TOPDIR"] = topdir
         os.environ["ARCH"] = "dummy"
         os.environ["BINDIR"] = bindir
         os.environ["APPSDIR"] = appsdir
-        os.environ["APPSBINDIR"] = appsdir
+        os.environ["APPSBINDIR"] = appsbindir
         os.environ["EXTERNALDIR"] = externaldir
         os.environ["srctree"] = topdir
 
@@ -153,17 +189,78 @@ def main():
         kconf = kconfiglib.Kconfig("Kconfig", warn=False)
 
         kconfig_rst_dir = os.path.join(topdir, "Documentation", "kconfig")
-        os.makedirs(kconfig_rst_dir, exist_ok=True)
+
+        # Clean up old files first
+        if os.path.exists(kconfig_rst_dir):
+            for f in os.listdir(kconfig_rst_dir):
+                if f.endswith(".rst"):
+                    os.remove(os.path.join(kconfig_rst_dir, f))
+        else:
+            os.makedirs(kconfig_rst_dir, exist_ok=True)
 
         env = Environment(loader=FileSystemLoader(script_dir))
         env.globals["kconfiglib"] = kconfiglib
         env.globals["expr_str"] = expr_str
         env.globals["rst_link"] = rst_link
+        env.globals["plain_link"] = plain_link
         env.globals["top_to_node"] = top_to_node
         env.globals["choice_desc"] = choice_desc
         env.globals["choice_id"] = choice_id
         env.globals["has_non_trivial_dep"] = has_non_trivial_dep
         env.globals["has_rev_dep"] = has_rev_dep
+        env.globals["format_default_value"] = format_default_value
+
+        def safe_desc(sym):
+            if sym.nodes and sym.nodes[0].help:
+                s = sym.nodes[0].help.split("\n")[0].strip()[:80]
+            elif sym.nodes and sym.nodes[0].prompt:
+                s = sym.nodes[0].prompt[0][:80]
+            else:
+                s = "(no description)"
+            s = s.replace("*", "\\*").replace("|", "\\|").replace("`", "\\`").replace("_", "\\_")
+            if len(s) >= 3 and all(c in "-=_" for c in s):
+                return "(no description)"
+            return s
+
+        env.globals["safe_desc"] = safe_desc
+
+        def _looks_like_transition(line: str) -> bool:
+            stripped = line.strip()
+            return (
+                len(stripped) >= 4
+                and len(set(stripped)) <= 2
+                and all(c in "-=*`^_~#+<>" for c in stripped)
+            )
+
+        def safe_line(line):
+            text = line.expandtabs(8)
+            # Indent EVERYTHING by at least 3 spaces.
+            # Blank lines must have spaces to keep the literal block alive.
+            if not text.strip():
+                return "   "
+
+            if _looks_like_transition(text):
+                text = f"(separator) {text.strip()}"
+
+            return "   " + text
+
+        def render_help(sc):
+            if not sc.nodes or not sc.nodes[0].help:
+                return "*No help available*"
+            lines = [safe_line(l) for l in sc.nodes[0].help.splitlines()]
+            return "::\n\n" + "\n".join(lines)
+
+        def render_kconfig_definition(sc):
+            res = []
+            for node in sc.nodes:
+                header = f"**Definition** ({node.filename}:{node.linenr}):"
+                lines = [safe_line(l) for l in node.custom_str(plain_link).splitlines()]
+                res.append(header + "\n::\n\n" + "\n".join(lines))
+            return "\n\n".join(res)
+
+        env.globals["render_help"] = render_help
+        env.globals["render_kconfig_definition"] = render_kconfig_definition
+
         _type_to_str = getattr(kconfiglib, "TYPE_TO_STR", {})
         env.globals["type_str"] = lambda sc: _type_to_str.get(
             getattr(sc, "orig_type", None), "unknown"
@@ -182,6 +279,7 @@ def main():
             with open(
                 os.path.join(kconfig_rst_dir, f"CONFIG_{sym.name}.rst"), "w"
             ) as rst_f:
+                rst_f.write(":orphan:\n\n")
                 rst_f.write(sym_template.render(sym=sym))
 
         for choice in kconf.unique_choices:
@@ -189,6 +287,7 @@ def main():
             with open(
                 os.path.join(kconfig_rst_dir, f"{choice_id(choice)}.rst"), "w"
             ) as rst_f:
+                rst_f.write(":orphan:\n\n")
                 rst_f.write(choice_template.render(choice=choice))
 
         with open(os.path.join(kconfig_rst_dir, "index.rst"), "w") as rst_f:

@@ -13,11 +13,16 @@ Details
 
 {{ direct_dep(choice) }}
 
-{{ defaults(choice) }}
+{% if choice.defaults %}
+**Defaults:**
+{% for expr, value in choice.defaults %}
+- CONFIG_{{ expr.name }} → ``{{ format_default_value(value) }}``
+{% endfor %}
+{% endif %}
 
 **Options:**
 {% for sym in choice.syms %}
-- {{ rst_link(sym) }}
+- CONFIG_{{ sym.name }}
 {% endfor %}
 
 Raw definition
